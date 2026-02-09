@@ -4,13 +4,18 @@ TourVisor API Client
 """
 
 import os
+import json
 import asyncio
+import logging
+import time
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger("mgp_bot")
 
 
 # ==================== ИСКЛЮЧЕНИЯ ====================
@@ -71,11 +76,36 @@ class TourVisorClient:
         
         url = f"{self.base_url}/{endpoint}"
         
+        # Логируем запрос (без авторизационных данных)
+        safe_params = {k: v for k, v in params.items() if k not in ("authlogin", "authpass")}
+        logger.info("🌐 TOURVISOR >> %s  params=%s", endpoint, safe_params)
+        t0 = time.perf_counter()
+        
         # Создаём новый клиент для каждого запроса (избегаем Event loop is closed)
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, params=params)
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                logger.info("🌐 TOURVISOR << %s  HTTP %s  %dms  size=%d bytes",
+                            endpoint, response.status_code, elapsed_ms, len(response.content))
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as e:
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+            logger.error("🌐 TOURVISOR !! %s  HTTP %s  %dms  error=%s",
+                         endpoint, e.response.status_code, elapsed_ms, str(e)[:200])
+            raise
+        except httpx.RequestError as e:
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+            logger.error("🌐 TOURVISOR !! %s  NETWORK ERROR  %dms  error=%s",
+                         endpoint, elapsed_ms, str(e)[:200])
+            raise
+        
+        # Логируем ключевые поля ответа
+        preview = json.dumps(data, ensure_ascii=False, default=str)
+        if len(preview) > 500:
+            preview = preview[:500] + "…"
+        logger.debug("🌐 TOURVISOR << %s  body=%s", endpoint, preview)
         
         # Проверяем на ошибки API (HTTP 200, но есть errormessage)
         self._check_api_error(data, endpoint)
@@ -98,18 +128,21 @@ class TourVisorClient:
                 success = inner.get("success")
                 
                 if error_msg:
+                    logger.warning("🌐 TOURVISOR API ERROR [%s]: %s", endpoint, error_msg)
                     # Специфичные ошибки
                     if "TourID" in error_msg or "tourid" in error_msg.lower():
                         raise TourIdExpiredError(error_msg, data)
                     raise TourVisorAPIError(error_msg, data)
                 
                 if success == 0:
+                    logger.warning("🌐 TOURVISOR API ERROR [%s]: success=0", endpoint)
                     raise TourVisorAPIError("Операция не выполнена (success=0)", data)
         
         # Проверка на "no search results" (для result.php)
         if endpoint == "result.php":
             status = data.get("data", {}).get("status", {})
             if status.get("state") == "no search results":
+                logger.warning("🌐 TOURVISOR API [%s]: no search results (requestid invalid)", endpoint)
                 raise SearchNotFoundError("Поиск не найден (requestid недействителен)", data)
     
     # ==================== СПРАВОЧНИКИ ====================
@@ -234,7 +267,6 @@ class TourVisorClient:
         price_to: Optional[int] = None,
         hotel_types: Optional[str] = None,
         services: Optional[str] = None,
-        tourid: Optional[str] = None,
         onrequest: Optional[int] = None,
         directflight: Optional[int] = None,
         flightclass: Optional[str] = None,
@@ -252,7 +284,24 @@ class TourVisorClient:
         if not date_from:
             date_from = (datetime.now() + timedelta(days=1)).strftime("%d.%m.%Y")
         if not date_to:
-            date_to = (datetime.now() + timedelta(days=8)).strftime("%d.%m.%Y")
+            # Если datefrom задан, а dateto нет — используем datefrom (точный поиск по дате вылета)
+            # Если ничего не задано — стандартный fallback +8 дней от сегодня
+            if date_from:
+                date_to = date_from
+                logger.warning("⚠️ dateto не указан, установлен = datefrom (%s)", date_to)
+            else:
+                date_to = (datetime.now() + timedelta(days=8)).strftime("%d.%m.%Y")
+        
+        # Валидация: dateto не может быть раньше datefrom
+        try:
+            df = datetime.strptime(date_from, "%d.%m.%Y")
+            dt = datetime.strptime(date_to, "%d.%m.%Y")
+            if dt < df:
+                logger.warning("⚠️ dateto (%s) раньше datefrom (%s) — автокоррекция: dateto = datefrom",
+                               date_to, date_from)
+                date_to = date_from
+        except (ValueError, TypeError):
+            pass
         
         params = {
             "departure": departure,
@@ -293,8 +342,6 @@ class TourVisorClient:
             params["hoteltypes"] = hotel_types
         if services:
             params["services"] = services
-        if tourid:
-            params["tourid"] = tourid
         if onrequest is not None:
             params["onrequest"] = onrequest
         if directflight is not None:
@@ -315,9 +362,15 @@ class TourVisorClient:
         data = await self._request("search.php", params)
         
         # requestid может быть в разных местах
+        request_id = None
         if "result" in data:
-            return data["result"].get("requestid")
-        return data.get("requestid")
+            request_id = data["result"].get("requestid")
+        else:
+            request_id = data.get("requestid")
+        
+        logger.info("🔎 SEARCH STARTED  requestid=%s  departure=%s country=%s dates=%s–%s nights=%s–%s adults=%s child=%s",
+                     request_id, departure, country, date_from, date_to, nights_from, nights_to, adults, children)
+        return request_id
     
     async def get_search_status(self, request_id: str) -> Dict:
         """Получить статус поиска"""
@@ -325,7 +378,11 @@ class TourVisorClient:
             "requestid": request_id,
             "type": "status"
         })
-        return data.get("data", {}).get("status", {})
+        status = data.get("data", {}).get("status", {})
+        logger.info("📊 SEARCH STATUS  requestid=%s  state=%s  hotels=%s tours=%s progress=%s%%",
+                     request_id, status.get("state"), status.get("hotelsfound"),
+                     status.get("toursfound"), status.get("progress", "?"))
+        return status
     
     async def get_search_results(
         self,
@@ -348,7 +405,13 @@ class TourVisorClient:
             params["nodescription"] = 1
         
         data = await self._request("result.php", params)
-        return data.get("data", {})
+        result = data.get("data", {})
+        hotels = result.get("result", {}).get("hotel", [])
+        status = result.get("status", {})
+        logger.info("📋 SEARCH RESULTS  requestid=%s  page=%s  hotels_on_page=%s  total_hotels=%s  total_tours=%s  min_price=%s",
+                     request_id, page, len(hotels) if isinstance(hotels, list) else "?",
+                     status.get("hotelsfound"), status.get("toursfound"), status.get("minprice"))
+        return result
     
     async def wait_for_search(
         self,
@@ -366,7 +429,7 @@ class TourVisorClient:
         start = datetime.now()
         last_status = {}
         
-        while (datetime.now() - start).seconds < max_wait:
+        while (datetime.now() - start).total_seconds() < max_wait:
             try:
                 last_status = await self.get_search_status(request_id)
             except SearchNotFoundError:
@@ -446,6 +509,8 @@ class TourVisorClient:
         tour_data["_actualized"] = True
         tour_data["_actualized_at"] = datetime.now().isoformat()
         
+        logger.info("💰 ACTUALIZE  tourid=%s  price=%s  operator=%s  hotel=%s",
+                     tour_id, tour_data.get("price"), tour_data.get("operatorname"), tour_data.get("hotelname"))
         return tour_data
     
     async def get_tour_details(
@@ -494,7 +559,28 @@ class TourVisorClient:
             params["reviews"] = 1
         
         data = await self._request("hotel.php", params)
-        return data.get("data", {}).get("hotel", {})
+        hotel = data.get("data", {}).get("hotel", {})
+        logger.info("🏨 HOTEL INFO  code=%s  name=%s  stars=%s  rating=%s  region=%s",
+                     hotel_code, hotel.get("name"), hotel.get("stars"), hotel.get("rating"), hotel.get("region"))
+        return hotel
+    
+    # ==================== ПРОДОЛЖЕНИЕ ПОИСКА ====================
+    
+    async def continue_search(self, request_id: str) -> Dict:
+        """
+        Продолжить поиск для получения дополнительных туров.
+        Каждое продолжение считается отдельным запросом в лимит!
+        """
+        data = await self._request("search.php", {"continue": request_id})
+        page = data.get("result", {}).get("page", "2")
+        logger.info("➡️ CONTINUE SEARCH  requestid=%s  page=%s", request_id, page)
+        return {"page": page}
+    
+    # ==================== ЗАКРЫТИЕ ====================
+    
+    async def close(self):
+        """Закрыть клиент (заглушка — httpx.AsyncClient создаётся на каждый запрос)"""
+        pass
     
     # ==================== ГОРЯЩИЕ ТУРЫ ====================
     
@@ -573,7 +659,10 @@ class TourVisorClient:
         
         data = await self._request("hottours.php", params)
         tours = data.get("hottours", {}).get("tour", [])
-        return tours if isinstance(tours, list) else [tours]
+        tours = tours if isinstance(tours, list) else [tours]
+        logger.info("🔥 HOT TOURS  city=%s  found=%s  filters: countries=%s stars=%s meal=%s",
+                     city, len(tours), countries, stars, meal)
+        return tours
 
 
 # ==================== УТИЛИТЫ ====================

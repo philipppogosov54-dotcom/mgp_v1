@@ -281,6 +281,59 @@
         .message.assistant p {
             line-height: 1.6;
         }
+        
+        /* Таблицы (для таблиц сравнения, деталей) */
+        .message.assistant table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 13px;
+        }
+        
+        .message.assistant th,
+        .message.assistant td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .message.assistant th {
+            background: #f3f4f6;
+            font-weight: 600;
+            font-size: 12px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        
+        .message.assistant tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Blockquotes (используются для акцентов/предупреждений) */
+        .message.assistant blockquote {
+            border-left: 3px solid #667eea;
+            padding: 8px 14px;
+            margin: 10px 0;
+            background: rgba(102, 126, 234, 0.06);
+            border-radius: 0 8px 8px 0;
+            color: #4b5563;
+            font-size: 14px;
+        }
+        
+        /* Заголовки h2 (используются в карточках актуализации) */
+        .message.assistant h2 {
+            font-size: 18px;
+            margin: 14px 0 8px;
+            color: #1f2937;
+        }
+        
+        /* h1 не нужен в карточках — уменьшаем */
+        .message.assistant h1 {
+            font-size: 20px;
+            margin: 16px 0 10px;
+            color: #1f2937;
+        }
     </style>
 </head>
 <body>
@@ -319,7 +372,37 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
     <script>
+        // Конфигурация marked: безопасный рендеринг Markdown
+        marked.setOptions({
+            breaks: true,       // Переносы строк → <br>
+            gfm: true,          // GitHub Flavored Markdown
+            headerIds: false,   // Без id у заголовков (XSS вектор)
+            mangle: false       // Не искажать email-адреса
+        });
+
+        /**
+         * Безопасный рендеринг Markdown → HTML.
+         * marked.parse() + DOMPurify для защиты от XSS.
+         */
+        function renderMarkdown(md) {
+            const raw = marked.parse(md || '');
+            // DOMPurify удаляет script, onclick, onerror и прочие XSS-вектора,
+            // но сохраняет img, a[href], strong, em и прочий безопасный HTML.
+            return DOMPurify.sanitize(raw, {
+                ALLOWED_TAGS: [
+                    'p','br','strong','em','b','i','u','s','del',
+                    'h1','h2','h3','h4','h5','h6',
+                    'ul','ol','li','blockquote','hr',
+                    'a','img','code','pre','table','thead','tbody','tr','th','td',
+                    'span','div','sup','sub'
+                ],
+                ALLOWED_ATTR: ['href','src','alt','title','target','rel','class'],
+                ALLOW_DATA_ATTR: false
+            });
+        }
+
         const messagesContainer = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('sendBtn');
@@ -336,7 +419,7 @@
             msg.className = `message ${role}`;
             
             if (role === 'assistant') {
-                msg.innerHTML = marked.parse(content);
+                msg.innerHTML = renderMarkdown(content);
             } else {
                 msg.textContent = content;
             }
@@ -356,7 +439,7 @@
             if (!msg) {
                 msg = addMessage(content, 'assistant', true);
             } else {
-                msg.innerHTML = marked.parse(content);
+                msg.innerHTML = renderMarkdown(content);
             }
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
@@ -413,9 +496,14 @@
                                     }
                                     finalizeStreamingMessage();
                                 } else if (data.type === 'error') {
-                                    addMessage('Ошибка: ' + data.content, 'assistant');
+                                    addMessage('⚠️ ' + data.content, 'assistant');
+                                } else if (data.type === 'ping') {
+                                    // keep-alive, ignore
                                 }
-                            } catch (e) {}
+                            } catch (parseErr) {
+                                // Неполный JSON-чанк — возможен при разрыве TCP-фреймов, безопасно игнорируем
+                                console.debug('SSE parse skip:', line.slice(0, 80), parseErr.message);
+                            }
                         }
                     }
                 }

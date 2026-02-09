@@ -8,8 +8,7 @@ import os
 import time
 import uuid
 import logging
-from datetime import datetime
-from flask import Flask, render_template, request, Response, jsonify, stream_with_context, g
+from flask import Flask, render_template, request, Response, jsonify, stream_with_context, g, send_from_directory
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 try:
@@ -26,9 +25,43 @@ app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
 
 # === ЛОГИРОВАНИЕ ===
+from datetime import datetime as _dt
+
+# Директория для логов
+_LOGS_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
+os.makedirs(_LOGS_DIR, exist_ok=True)
+
+# Файл диалогового лога (человекочитаемый markdown)
+_DIALOGUE_LOG_PATH = os.path.join(
+    _LOGS_DIR,
+    f"dialogue_{_dt.now().strftime('%Y%m%d_%H%M%S')}.md"
+)
+
+
+def _write_dialogue_log(session_id: str, direction: str, content: str):
+    """
+    Пишет в человекочитаемый диалоговый лог (markdown).
+    direction: 'USER', 'ASSISTANT', 'FUNC_CALL', 'FUNC_RESULT', 'API_RAW', 'ERROR', 'SYSTEM'
+    """
+    ts = _dt.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    sid = session_id[:8] if session_id else "--------"
+    icons = {
+        "USER": "👤", "ASSISTANT": "🤖", "FUNC_CALL": "🔧",
+        "FUNC_RESULT": "📦", "API_RAW": "🌐", "ERROR": "❌", "SYSTEM": "⚙️",
+        "TOUR_CARDS": "🎴"
+    }
+    icon = icons.get(direction, "📝")
+    try:
+        with open(_DIALOGUE_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"\n### [{ts}] {icon} {direction} (session: {sid})\n")
+            f.write(f"```\n{content}\n```\n")
+    except Exception:
+        pass  # лог не должен ломать приложение
+
+
 def _setup_logging() -> logging.Logger:
     """
-    Единая настройка логирования в консоль.
+    Единая настройка логирования в консоль + файл.
     Управление:
       - LOG_LEVEL=DEBUG|INFO|WARNING|ERROR (по умолчанию INFO)
     """
@@ -38,6 +71,12 @@ def _setup_logging() -> logging.Logger:
     level = getattr(logging, level_name, logging.INFO)
     logger.setLevel(level)
 
+    formatter = logging.Formatter(
+        fmt="%(asctime)s.%(msecs)03d %(levelname)s [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    # --- Console handler ---
     if logger.handlers:
         handler = logger.handlers[0]
     else:
@@ -45,11 +84,20 @@ def _setup_logging() -> logging.Logger:
         logger.addHandler(handler)
 
     handler.setLevel(level)
-    formatter = logging.Formatter(
-        fmt="%(asctime)s.%(msecs)03d %(levelname)s [%(name)s] %(message)s",
-        datefmt="%H:%M:%S",
-    )
     handler.setFormatter(formatter)
+
+    # --- File handler (полный лог с DEBUG) ---
+    file_log_path = os.path.join(
+        _LOGS_DIR,
+        f"server_{_dt.now().strftime('%Y%m%d_%H%M%S')}.log"
+    )
+    file_handler = logging.FileHandler(file_log_path, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(
+        fmt="%(asctime)s.%(msecs)03d %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    logger.addHandler(file_handler)
 
     # WerkZeug: по умолчанию скрываем access-логи (они дублируют наши -> / <-).
     # При необходимости можно включить обратно через WERKZEUG_LOG_LEVEL=INFO.
@@ -59,16 +107,26 @@ def _setup_logging() -> logging.Logger:
     werk_logger.setLevel(werk_level)
     if not werk_logger.handlers:
         werk_logger.addHandler(handler)
+        werk_logger.addHandler(file_handler)
     else:
         # на случай, если handler уже был, приведём его к одному формату
         for h in werk_logger.handlers:
             h.setLevel(werk_level)
             h.setFormatter(formatter)
 
+    logger.info("📁 Server log: %s", file_log_path)
+    logger.info("📁 Dialogue log: %s", _DIALOGUE_LOG_PATH)
+
     return logger
 
 
 logger = _setup_logging()
+
+# Записываем заголовок диалогового лога
+with open(_DIALOGUE_LOG_PATH, "w", encoding="utf-8") as _f:
+    _f.write(f"# 📝 Диалоговый лог AI-Турменеджера МГП\n")
+    _f.write(f"**Дата:** {_dt.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+    _f.write(f"---\n")
 
 
 def log(msg: str, level: str = "INFO"):
@@ -84,31 +142,84 @@ def log(msg: str, level: str = "INFO"):
     py_level = level_map.get(level, logging.INFO)
     logger.log(py_level, f"[{level}] {msg}")
 
-# Глобальный handler (для простоты — один на всех, в production нужно по сессиям)
-handlers = {}
+# === УПРАВЛЕНИЕ СЕССИЯМИ ===
+# Thread-safe хранилище сессий с автоочисткой
+_handlers_lock = threading.Lock()
+_handlers: dict[str, dict] = {}  # session_id → {"handler": YandexGPTHandler, "last_active": float}
+SESSION_TTL_SECONDS = 30 * 60  # 30 минут неактивности → удаление
+
 
 def get_handler(session_id: str) -> YandexGPTHandler:
-    """Получить или создать handler для сессии"""
-    if session_id not in handlers:
-        handlers[session_id] = YandexGPTHandler()
-    return handlers[session_id]
+    """Получить или создать handler для сессии (thread-safe)"""
+    with _handlers_lock:
+        if session_id in _handlers:
+            _handlers[session_id]["last_active"] = time.time()
+            return _handlers[session_id]["handler"]
+        handler = YandexGPTHandler()
+        # Подключаем диалоговый лог
+        handler._dialogue_log_callback = lambda direction, content: _write_dialogue_log(session_id, direction, content)
+        _handlers[session_id] = {"handler": handler, "last_active": time.time()}
+        logger.info("🆕 New session %s  (total sessions: %d)", session_id[:8], len(_handlers))
+        _write_dialogue_log(session_id, "SYSTEM", f"New session created (model: {handler.model})")
+        return handler
+
+
+def _cleanup_stale_sessions():
+    """Удалить сессии, неактивные дольше SESSION_TTL_SECONDS"""
+    now = time.time()
+    with _handlers_lock:
+        stale = [sid for sid, info in _handlers.items()
+                 if now - info["last_active"] > SESSION_TTL_SECONDS]
+        for sid in stale:
+            handler = _handlers[sid]["handler"]
+            try:
+                handler.close_sync()
+            except Exception:
+                logger.debug("close_sync failed for session %s", sid[:8], exc_info=True)
+            del _handlers[sid]
+        if stale:
+            logger.info("🧹 Cleaned up %d stale sessions (remaining: %d)", len(stale), len(_handlers))
+
+
+# Путь к новому фронтенду (frontend/) — абсолютный путь для корректной работы send_from_directory
+_FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend"))
 
 
 @app.route('/')
 def index():
-    """Главная страница с чатом"""
-    return render_template('chat.html')
+    """Главная страница — новый чат-виджет"""
+    return send_from_directory(_FRONTEND_DIR, 'index.html')
+
+
+@app.route('/widget')
+def widget():
+    """Новый чат-виджет с визуальными карточками туров"""
+    return send_from_directory(_FRONTEND_DIR, 'index.html')
+
+
+@app.route('/frontend/<path:filename>')
+def frontend_static(filename):
+    """Статические файлы нового фронтенда (CSS, JS)"""
+    return send_from_directory(_FRONTEND_DIR, filename)
+
 
 @app.route('/favicon.ico')
 def favicon():
     """Чтобы не засорять логи 404-ками от браузера."""
     return ("", 204)
 
+_last_cleanup = [0.0]  # mutable container for nonlocal access
+
 @app.before_request
 def _log_request_start():
     g._req_start = time.perf_counter()
     g.request_id = uuid.uuid4().hex[:8]
     logger.info("-> %s %s rid=%s ip=%s", request.method, request.path, g.request_id, request.remote_addr)
+    # Периодическая очистка устаревших сессий (каждые 5 минут)
+    now = time.time()
+    if now - _last_cleanup[0] > 300:
+        _last_cleanup[0] = now
+        _cleanup_stale_sessions()
 
 
 @app.after_request
@@ -162,6 +273,90 @@ def chat():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/v1/chat', methods=['POST'])
+def chat_v1():
+    """
+    Новый API для чат-виджета.
+    Принимает: { message, conversation_id }
+    Возвращает: { reply, tour_cards, conversation_id }
+    
+    Ключевое отличие от /api/chat/stream:
+    - Один JSON-ответ (не SSE stream)
+    - tour_cards — массив структурированных объектов для визуальных карточек
+    - reply — текстовый ответ ассистента (без Markdown-карточек)
+    """
+    data = request.json
+    message = data.get('message', '')
+    conversation_id = data.get('conversation_id', str(uuid.uuid4()))
+
+    if not message:
+        return jsonify({
+            'error': 'Empty message',
+            'reply': '',
+            'tour_cards': [],
+            'conversation_id': conversation_id
+        }), 400
+
+    # conversation_id → session_id
+    session_id = conversation_id
+
+    log(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "INFO")
+    log(f"📨 [v1] Новое сообщение от {session_id[:8]}...", "MSG")
+    log(f"   └─ \"{message[:100]}{'...' if len(message) > 100 else ''}\"", "MSG")
+
+    _write_dialogue_log(session_id, "USER", message)
+
+    handler = get_handler(session_id)
+
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        reply = loop.run_until_complete(handler.chat(message))
+        loop.close()
+
+        # Забираем накопленные tour_cards
+        tour_cards = list(handler._pending_tour_cards)
+        handler._pending_tour_cards = []
+
+        _write_dialogue_log(session_id, "ASSISTANT", reply)
+
+        # Логируем карточки туров (полные данные: цены, даты, отели, питание)
+        if tour_cards:
+            cards_summary_lines = []
+            for i, card in enumerate(tour_cards, 1):
+                cards_summary_lines.append(
+                    f"  {i}. {card.get('hotel_name', '?')} {'⭐' * card.get('hotel_stars', 0)}\n"
+                    f"     📍 {card.get('country', '')} / {card.get('resort', '')}\n"
+                    f"     💰 {card.get('price', '?'):,} ₽ {'(за чел.)' if card.get('price_per_person') else '(за тур)'}\n"
+                    f"     📅 {card.get('date_from', '?')} → {card.get('date_to', '?')} ({card.get('nights', '?')} ночей)\n"
+                    f"     🍽 {card.get('meal_description', card.get('food_type', '?'))}\n"
+                    f"     🏨 {card.get('room_type', '?')}\n"
+                    f"     ✈️ Из: {card.get('departure_city', '?')} | Перелёт: {'Да' if card.get('flight_included') else 'Нет'}\n"
+                    f"     🏢 Оператор: {card.get('operator', '?')}\n"
+                    f"     🔗 {card.get('hotel_link', '')}"
+                )
+            cards_text = f"Показано {len(tour_cards)} карточек:\n" + "\n".join(cards_summary_lines)
+            _write_dialogue_log(session_id, "TOUR_CARDS", cards_text)
+
+        log(f"✅ [v1] Ответ: {len(reply)} символов, {len(tour_cards)} карточек", "OK")
+
+        return jsonify({
+            'reply': reply,
+            'tour_cards': tour_cards,
+            'conversation_id': conversation_id
+        })
+
+    except Exception as e:
+        logger.exception("[v1] chat error session_id=%s", session_id)
+        _write_dialogue_log(session_id, "ERROR", str(e))
+        return jsonify({
+            'error': str(e),
+            'reply': 'Извините, произошла техническая ошибка. Попробуйте ещё раз.',
+            'tour_cards': [],
+            'conversation_id': conversation_id
+        }), 500
+
+
 @app.route('/api/chat/stream', methods=['POST'])
 def chat_stream():
     """Chat со streaming через SSE"""
@@ -172,6 +367,9 @@ def chat_stream():
     log(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "INFO")
     log(f"📨 Новое сообщение от {session_id[:8]}...", "MSG")
     log(f"   └─ \"{message[:100]}{'...' if len(message) > 100 else ''}\"", "MSG")
+    
+    # Логируем входящее сообщение пользователя
+    _write_dialogue_log(session_id, "USER", message)
     
     if not message:
         log("❌ Пустое сообщение!", "ERROR")
@@ -185,10 +383,29 @@ def chat_stream():
         token_queue = queue.Queue()
         result = {'response': '', 'error': None}
         token_count = [0]  # Счётчик токенов
+        accumulated_text = ['']  # Накопленный текст для dedup
+        first_line = [None]  # Первая строка ответа
+        dedup_active = [False]  # Флаг: обнаружен дубликат, прекращаем отправку
         
         def on_token(token):
-            token_queue.put(('token', token))
-            token_count[0] += 1
+            accumulated_text[0] += token
+            
+            # Определяем первую строку (после первого \n)
+            if first_line[0] is None:
+                nl_idx = accumulated_text[0].find('\n')
+                if nl_idx > 10:
+                    first_line[0] = accumulated_text[0][:nl_idx].strip()
+            
+            # Проверяем дубликат: если первая строка повторилась
+            if first_line[0] and len(accumulated_text[0]) > len(first_line[0]) + 50:
+                second = accumulated_text[0].find(first_line[0], len(first_line[0]) + 1)
+                if second > 0 and not dedup_active[0]:
+                    dedup_active[0] = True
+                    logger.debug("🧹 STREAM DEDUP: duplicate detected at char %d, stopping token emission", second)
+            
+            if not dedup_active[0]:
+                token_queue.put(('token', token))
+                token_count[0] += 1
         
         def run_chat():
             try:
@@ -202,11 +419,14 @@ def chat_stream():
                 result['response'] = response
                 log(f"✅ Ответ получен: {len(response)} символов, {token_count[0]} токенов", "OK")
                 log(f"   └─ \"{response[:150]}{'...' if len(response) > 150 else ''}\"", "OK")
+                # Логируем полный ответ ассистента
+                _write_dialogue_log(session_id, "ASSISTANT", response)
                 token_queue.put(('done', response))
             except Exception as e:
                 result['error'] = str(e)
                 logger.exception("stream chat error session_id=%s", session_id)
                 log(f"❌ ОШИБКА: {e}", "ERROR")
+                _write_dialogue_log(session_id, "ERROR", str(e))
                 token_queue.put(('error', str(e)))
         
         # Запускаем в отдельном потоке
@@ -248,9 +468,11 @@ def reset():
     data = request.json or {}
     session_id = data.get('session_id', 'default')
     
-    if session_id in handlers:
-        handlers[session_id].reset()
-        log(f"🔄 Сессия {session_id[:8]}... сброшена", "WARN")
+    with _handlers_lock:
+        if session_id in _handlers:
+            _handlers[session_id]["handler"].reset()
+            log(f"🔄 Сессия {session_id[:8]}... сброшена", "WARN")
+            _write_dialogue_log(session_id, "SYSTEM", "=== SESSION RESET ===")
     
     return jsonify({'status': 'ok'})
 
@@ -258,13 +480,44 @@ def reset():
 @app.route('/api/status')
 def status():
     """Статус сервера"""
+    with _handlers_lock:
+        session_count = len(_handlers)
     return jsonify({
         'status': 'running',
-        'sessions': len(handlers)
+        'sessions': session_count
     })
 
 
+@app.route('/api/metrics')
+def get_metrics():
+    """
+    Возвращает агрегированные метрики по всем активным сессиям.
+    Используется для мониторинга качества работы AI-ассистента.
+    """
+    with _handlers_lock:
+        aggregated = {
+            "total_sessions": len(_handlers),
+            "promised_search_detections": 0,
+            "cascade_incomplete_detections": 0,
+            "dateto_corrections": 0,
+            "total_searches": 0,
+            "total_messages": 0,
+        }
+        
+        for session_data in _handlers.values():
+            handler = session_data["handler"]
+            metrics = handler.get_metrics()
+            for key in ["promised_search_detections", "cascade_incomplete_detections", 
+                        "dateto_corrections", "total_searches", "total_messages"]:
+                aggregated[key] += metrics.get(key, 0)
+        
+        return jsonify(aggregated)
+
+
 if __name__ == '__main__':
+    import socket
+    from werkzeug.serving import run_simple
+
     from dotenv import load_dotenv
     load_dotenv()
     
@@ -277,6 +530,10 @@ if __name__ == '__main__':
     print(f"📍 URL: http://localhost:8080")
     print(f"🤖 Модель: {model}")
     print(f"📁 Folder: {folder[:8]}...")
+    print(f"📝 Dialogue log: {_DIALOGUE_LOG_PATH}")
+    print(f"📋 Server log: {os.path.join(_LOGS_DIR, 'server_*.log')}")
     print("="*50 + "\n")
     
-    app.run(host='0.0.0.0', port=8080, debug=True, threaded=True)
+    # Привязываемся к '::' (IPv6 dual-stack) — принимает и IPv4, и IPv6 соединения.
+    # На macOS localhost -> ::1, поэтому без IPv6 браузер получает ERR_CONNECTION_RESET.
+    run_simple('::', 8080, app, use_reloader=False, use_debugger=False, threaded=True)

@@ -1,15 +1,16 @@
 # TourVisor Bot Dependencies
 # Responses API Migration
+# Версии зафиксированы для воспроизводимости сборки
 
 # HTTP клиент для TourVisor API
-httpx>=0.27.0
+httpx>=0.27.0,<1.0.0
 
 # Загрузка переменных окружения
-python-dotenv>=1.0.0
+python-dotenv>=1.0.0,<2.0.0
 
 # OpenAI SDK для Yandex Responses API
-openai>=1.50.0
+openai>=1.50.0,<2.0.0
 
 # Web UI
-flask>=3.0.0
-flask-cors>=4.0.0
+flask>=3.0.0,<4.0.0
+flask-cors>=4.0.0,<5.0.0
