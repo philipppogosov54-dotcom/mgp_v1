@@ -3,7 +3,7 @@
     {
       "type": "function",
       "name": "get_current_date",
-      "description": "Возвращает текущую дату и время. Используй эту функцию когда нужно знать сегодняшнюю дату для формирования параметров поиска (datefrom/dateto).",
+      "description": "Возвращает текущую дату/время для формирования datefrom/dateto.",
       "parameters": {
         "type": "object",
         "properties": {},
@@ -13,161 +13,161 @@
     {
       "type": "function",
       "name": "search_tours",
-      "description": "Запускает поиск туров по заданным параметрам. Возвращает requestid для получения результатов. Поиск асинхронный — после вызова ОБЯЗАТЕЛЬНО вызови get_search_status (он автоматически ждёт до 60с), затем get_search_results для получения отелей. Порядок: search_tours → get_search_status → get_search_results. ⚠️ ВАЖНО: Цены в результатах указаны ЗА НОМЕР (не за человека)! ⚠️ ТИПЫ ДАННЫХ: Справочники возвращают id как STRING ('1'), но результаты содержат INTEGER (regioncode: 19) — учитывай при сравнении! ⚠️ ДАТЫ: Всегда в формате ДД.ММ.ГГГГ, всегда в будущем! Перед поиском вызови get_current_date() если не знаешь текущую дату. Максимальный диапазон дат: 14 дней.",
+      "description": "Запускает асинхронный поиск туров. Возвращает requestid. Пайплайн: search_tours → get_search_status → get_search_results. Цены ЗА НОМЕР. Даты: ДД.ММ.ГГГГ, макс. диапазон 14 дней.",
       "parameters": {
         "type": "object",
         "properties": {
           "departure": {
             "type": "integer",
-            "description": "Код города вылета (обязательно). Получить коды можно через get_dictionaries с type=departure."
+            "description": "Код города вылета (get_dictionaries type=departure)."
           },
           "country": {
             "type": "integer",
-            "description": "Код страны назначения (обязательно). Получить коды можно через get_dictionaries с type=country."
+            "description": "Код страны (get_dictionaries type=country)."
           },
           "datefrom": {
             "type": "string",
-            "description": "Дата начала поиска в формате ДД.ММ.ГГГГ. ОБЯЗАТЕЛЬНО укажи вместе с dateto! Перед формированием вызови get_current_date()."
+            "description": "Начало диапазона дат (ДД.ММ.ГГГГ). Обязательно с dateto."
           },
           "dateto": {
             "type": "string",
-            "description": "Дата окончания поиска в формате ДД.ММ.ГГГГ. ОБЯЗАТЕЛЬНО укажи! Если клиент назвал конкретную дату — dateto = datefrom (точная дата вылета). Если часть месяца — используй фиксированный диапазон. Максимальный диапазон datefrom–dateto: 14 дней."
+            "description": "Конец диапазона (ДД.ММ.ГГГГ). Точная дата: dateto=datefrom. Макс. разница 14 дней."
           },
           "nightsfrom": {
             "type": "integer",
-            "description": "Минимальное количество ночей. По умолчанию: 7.",
+            "description": "Мин. ночей.",
             "default": 7,
             "minimum": 1
           },
           "nightsto": {
             "type": "integer",
-            "description": "Максимальное количество ночей. По умолчанию: 10.",
+            "description": "Макс. ночей.",
             "default": 10,
             "minimum": 1
           },
           "adults": {
             "type": "integer",
-            "description": "Количество взрослых. По умолчанию: 2.",
+            "description": "Кол-во взрослых.",
             "default": 2,
             "minimum": 1,
             "maximum": 6
           },
           "child": {
             "type": "integer",
-            "description": "Количество детей. По умолчанию: 0. Максимум: 3.",
+            "description": "Кол-во детей.",
             "default": 0,
             "minimum": 0,
             "maximum": 3
           },
           "childage1": {
             "type": "integer",
-            "description": "Возраст первого ребёнка в годах. Младенец = 1.",
+            "description": "Возраст 1-го ребёнка. Младенец=1.",
             "minimum": 1,
             "maximum": 17
           },
           "childage2": {
             "type": "integer",
-            "description": "Возраст второго ребёнка в годах.",
+            "description": "Возраст 2-го ребёнка.",
             "minimum": 1,
             "maximum": 17
           },
           "childage3": {
             "type": "integer",
-            "description": "Возраст третьего ребёнка в годах.",
+            "description": "Возраст 3-го ребёнка.",
             "minimum": 1,
             "maximum": 17
           },
           "stars": {
             "type": "integer",
-            "description": "Минимальная звёздность отеля (2, 3, 4, 5).",
+            "description": "Мин. звёздность.",
             "enum": [2, 3, 4, 5]
           },
           "starsbetter": {
             "type": "integer",
-            "description": "Если 1 — показывать отели с категорией выше указанной. По умолчанию: 0 (только указанная категория). Ставь 1 только если клиент сказал 'от' / 'не ниже' / 'минимум' / указал диапазон (напр. '4-5 звёзд').",
+            "description": "1=и выше (только если клиент сказал 'от'/'не ниже').",
             "enum": [0, 1],
             "default": 0
           },
           "meal": {
             "type": "integer",
-            "description": "Код типа питания. Получить коды через get_dictionaries с type=meal."
+            "description": "Код питания (get_dictionaries type=meal)."
           },
           "mealbetter": {
             "type": "integer",
-            "description": "Если 1 — показывать питание лучше указанного. По умолчанию: 0 (точное совпадение). Ставь 1 только если клиент сказал 'и выше' / 'минимум' / 'не ниже'.",
+            "description": "1=и лучше (только если клиент сказал 'и выше'/'минимум').",
             "enum": [0, 1],
             "default": 0
           },
           "rating": {
             "type": "integer",
-            "description": "Минимальный рейтинг отеля. ВАЖНО: используется кодировка! 0=любой, 2=>=3.0, 3=>=3.5, 4=>=4.0, 5=>=4.5",
+            "description": "Мин. рейтинг: 0=любой, 2=≥3.0, 3=≥3.5, 4=≥4.0, 5=≥4.5.",
             "enum": [0, 2, 3, 4, 5],
             "default": 0
           },
           "hotels": {
             "type": "string",
-            "description": "Коды конкретных отелей через запятую. Например: '470,471,472'."
+            "description": "Коды отелей через запятую."
           },
           "hoteltypes": {
             "type": "string",
-            "description": "Типы отелей через запятую. Допустимые значения: active, relax, family, health, city, beach, deluxe. Например: 'beach,family'."
+            "description": "Типы: active,relax,family,health,city,beach,deluxe."
           },
           "regions": {
             "type": "string",
-            "description": "Коды курортов через запятую. Для ПОПУЛЯРНЫХ регионов используй закэшированные коды (Турция: Аланья=19, Анталья=20, Белек=21, Кемер=22, Сиде=23). Для РЕДКИХ — вызови get_dictionaries(type=region, regcountry=код_страны). Коды РАЗНЫЕ для каждой страны!"
+            "description": "Коды курортов через запятую. Турция: Аланья=19, Анталья=20, Белек=21, Кемер=22, Сиде=23."
           },
           "subregions": {
             "type": "string",
-            "description": "Коды районов внутри курорта. Получить через get_dictionaries(type=subregion, regcountry=код_страны). Если указан subregion, НЕ указывать соответствующий region!"
+            "description": "Коды районов. Если указан — НЕ указывать regions."
           },
           "operators": {
             "type": "string",
-            "description": "Коды туроператоров через запятую. Получить через get_dictionaries(type=operator, flydeparture=код_города, flycountry=код_страны)."
+            "description": "Коды туроператоров через запятую."
           },
           "pricefrom": {
             "type": "integer",
-            "description": "Минимальная цена в рублях."
+            "description": "Мин. цена (руб.)."
           },
           "priceto": {
             "type": "integer",
-            "description": "Максимальная цена в рублях."
+            "description": "Макс. цена (руб.)."
           },
           "pricetype": {
             "type": "integer",
-            "description": "Тип цены: 0 = за номер (по умолчанию), 1 = за человека.",
+            "description": "0=за номер, 1=за человека.",
             "enum": [0, 1],
             "default": 0
           },
           "currency": {
             "type": "integer",
-            "description": "Валюта результатов: 0=RUB (по умолчанию), 1=USD/EUR, 2=BYR, 3=KZT.",
+            "description": "0=RUB, 1=USD/EUR, 2=BYR, 3=KZT.",
             "enum": [0, 1, 2, 3],
             "default": 0
           },
           "hideregular": {
             "type": "integer",
-            "description": "Если 1 — скрыть туры на регулярных рейсах.",
+            "description": "1=скрыть регулярные рейсы.",
             "enum": [0, 1]
           },
           "services": {
             "type": "string",
-            "description": "Коды услуг отеля через запятую (первая линия, аквапарк и т.д.). Получить через get_dictionaries с type=services."
+            "description": "Коды услуг через запятую (get_dictionaries type=services)."
           },
           "onrequest": {
             "type": "integer",
-            "description": "Туры под запрос: 0=все туры (по умолчанию), 1=только подтверждённые (без 'под запрос'), 2=только туры под запрос.",
+            "description": "0=все, 1=только подтверждённые, 2=только под запрос.",
             "enum": [0, 1, 2],
             "default": 0
           },
           "directflight": {
             "type": "integer",
-            "description": "Фильтр по рейсам: 0=все рейсы (по умолчанию), 1=только прямые рейсы (без пересадок).",
+            "description": "1=только прямые рейсы.",
             "enum": [0, 1],
             "default": 0
           },
           "flightclass": {
             "type": "string",
-            "description": "Класс перелёта: Y=эконом (по умолчанию), C=бизнес.",
+            "description": "Y=эконом, C=бизнес.",
             "enum": ["Y", "C"],
             "default": "Y"
           }
@@ -178,13 +178,13 @@
     {
       "type": "function",
       "name": "get_search_status",
-      "description": "Ожидает завершения поиска и возвращает итоговый статус. Функция автоматически ждёт до 60 секунд — НЕ вызывай её в цикле! Один вызов = полное ожидание. После получения ответа вызови get_search_results. ⚠️ ОШИБКИ: Если state='no search results' — requestid недействителен, нужен новый поиск. Если state='finished' но hotelsfound=0 — туры не найдены, предложи смягчить фильтры.",
+      "description": "Ожидает завершения поиска (до 60с автоматически). НЕ вызывай в цикле. Если state='no search results' — нужен новый search_tours. Если hotelsfound=0 — предложи смягчить фильтры.",
       "parameters": {
         "type": "object",
         "properties": {
           "requestid": {
             "type": "string",
-            "description": "ID поискового запроса, полученный от search_tours."
+            "description": "ID от search_tours."
           }
         },
         "required": ["requestid"]
@@ -193,35 +193,35 @@
     {
       "type": "function",
       "name": "get_search_results",
-      "description": "Получает результаты поиска туров: список отелей с турами. Вызывать ТОЛЬКО после get_search_status, когда поиск завершён. Порядок: search_tours → get_search_status → get_search_results. ⚠️ ВАЖНО: Если hotelsfound=0 в статусе — НЕ вызывай эту функцию, результатов не будет! ⚠️ ЦЕНЫ: Указаны ЗА НОМЕР (весь состав), НЕ за человека!",
+      "description": "Получает список отелей с турами. Вызывать ТОЛЬКО после get_search_status. Цены ЗА НОМЕР.",
       "parameters": {
         "type": "object",
         "properties": {
           "requestid": {
             "type": "string",
-            "description": "ID поискового запроса, полученный от search_tours."
+            "description": "ID от search_tours."
           },
           "page": {
             "type": "integer",
-            "description": "Номер страницы результатов. По умолчанию: 1.",
+            "description": "Страница результатов.",
             "default": 1,
             "minimum": 1
           },
           "onpage": {
             "type": "integer",
-            "description": "Количество отелей на странице. По умолчанию: 10 (оптимально для обработки). Максимум: 100.",
+            "description": "Отелей на странице.",
             "default": 10,
             "minimum": 1,
             "maximum": 100
           },
           "nodescription": {
             "type": "integer",
-            "description": "Если 1 — не включать описания отелей (уменьшает размер ответа).",
+            "description": "1=без описаний отелей.",
             "enum": [0, 1]
           },
           "operatorstatus": {
             "type": "integer",
-            "description": "Если 1 — включить детальный статус по каждому туроператору.",
+            "description": "1=детальный статус по ТО.",
             "enum": [0, 1]
           }
         },
@@ -231,13 +231,13 @@
     {
       "type": "function",
       "name": "continue_search",
-      "description": "Продолжает поиск для получения дополнительных туров. ВАЖНО: каждое продолжение считается отдельным запросом в статистику! Возвращает page (номер страницы как STRING). После вызова статус снова становится 'searching' — нужно ждать завершения. Использовать когда клиент хочет 'ещё варианты' или 'показать больше'.",
+      "description": "Продолжает поиск для доп. туров. Считается отдельным запросом. После вызова нужен get_search_status → get_search_results.",
       "parameters": {
         "type": "object",
         "properties": {
           "requestid": {
             "type": "string",
-            "description": "ID поискового запроса для продолжения."
+            "description": "ID поиска."
           }
         },
         "required": ["requestid"]
@@ -246,84 +246,77 @@
     {
       "type": "function",
       "name": "get_dictionaries",
-      "description": "Получает справочники: города вылета, страны, курорты, типы питания, звёздность, отели, операторы, даты вылета, валюты, услуги. Можно запросить несколько типов за раз.",
+      "description": "Справочники: departure, country, region, subregion, meal, stars, hotel, operator, flydate, currency, services. Один type за вызов.",
       "parameters": {
         "type": "object",
         "properties": {
           "type": {
             "type": "string",
-            "description": "Тип справочника (ОДИН за вызов). Допустимые: departure, country, region, subregion, meal, stars, hotel, operator, flydate, currency, services. Для нескольких типов — вызови функцию несколько раз."
+            "description": "Тип: departure, country, region, subregion, meal, stars, hotel, operator, flydate, currency, services."
           },
           "cndep": {
             "type": "integer",
-            "description": "Для type=country: код города вылета для фильтрации стран с вылетами."
+            "description": "Для country: код города вылета."
           },
           "regcountry": {
             "type": "integer",
-            "description": "Для type=region или subregion: код страны для фильтрации курортов."
+            "description": "Для region/subregion: код страны."
           },
           "hotcountry": {
             "type": "integer",
-            "description": "Для type=hotel: код страны (обязательно для hotel!)."
+            "description": "Для hotel: код страны (обязательно)."
           },
           "hotregion": {
             "type": "string",
-            "description": "Для type=hotel: коды курортов через запятую."
+            "description": "Для hotel: коды курортов."
           },
           "hotstars": {
             "type": "integer",
-            "description": "Для type=hotel: минимальная звёздность."
+            "description": "Для hotel: мин. звёздность."
           },
           "hotrating": {
             "type": "number",
-            "description": "Для type=hotel: минимальный рейтинг (например, 4.0)."
+            "description": "Для hotel: мин. рейтинг."
           },
           "hotactive": {
             "type": "integer",
-            "description": "Для type=hotel: только отели типа 'Активный'. 1 = да.",
             "enum": [0, 1]
           },
           "hotrelax": {
             "type": "integer",
-            "description": "Для type=hotel: только отели типа 'Спокойный'. 1 = да.",
             "enum": [0, 1]
           },
           "hotfamily": {
             "type": "integer",
-            "description": "Для type=hotel: только отели типа 'Семейный'. 1 = да.",
             "enum": [0, 1]
           },
           "hothealth": {
             "type": "integer",
-            "description": "Для type=hotel: только отели типа 'Здоровье'. 1 = да.",
             "enum": [0, 1]
           },
           "hotcity": {
             "type": "integer",
-            "description": "Для type=hotel: только отели типа 'Городской'. 1 = да.",
             "enum": [0, 1]
           },
           "hotbeach": {
             "type": "integer",
-            "description": "Для type=hotel: только отели типа 'Пляжный'. 1 = да.",
             "enum": [0, 1]
           },
           "hotdeluxe": {
             "type": "integer",
-            "description": "Для type=hotel: только отели типа 'Люкс'. 1 = да.",
             "enum": [0, 1]
           },
           "name": {
             "type": "string",
-            "description": "Для type=hotel: фильтр по названию отеля (частичное совпадение). Например: 'Rixos' найдёт все отели Rixos."
+            "description": "Для hotel: фильтр по названию."
           },
           "flydeparture": {
             "type": "integer",
-            "description": "Для type=flydate или operator: код города вылета."
+            "description": "Для flydate/operator: код города."
           },
           "flycountry": {
             "type": "integer",
-            "description": "Для type=flydate или operator: код страны."
+            "description": "Для flydate/operator: код страны."
           }
         },
         "required": ["type"]
@@ -332,23 +325,23 @@
     {
       "type": "function",
       "name": "actualize_tour",
-      "description": "Актуализирует цену тура и получает дополнительную информацию: стоимость визы, ссылку на бронирование. Используй request=2 для просмотра (из кэша), request=1 перед бронированием (точная цена). ⚠️ ОШИБКА 'Wrong (obsolete) TourID': tourid живёт ~24 часа! Если получил эту ошибку — сообщи клиенту что данные устарели и выполни НОВЫЙ ПОИСК с теми же параметрами. Не проси tourid у клиента — у него его нет!",
+      "description": "Актуализация цены тура. request=2 (кэш, не тратит лимит), request=1 (точная цена). Ошибка 'Wrong TourID' → tourid устарел, нужен новый поиск.",
       "parameters": {
         "type": "object",
         "properties": {
           "tourid": {
             "type": "string",
-            "description": "ID тура из результатов поиска или горящих туров. ВАЖНО: действует ~24 часа!"
+            "description": "ID тура (действует ~24ч)."
           },
           "request": {
             "type": "integer",
-            "description": "Режим запроса: 0=автоматически, 1=всегда запрос к оператору (точная цена, считается в лимит), 2=из кэша (не считается в лимит). По умолчанию: 2 (кэш — не тратит лимит).",
+            "description": "0=авто, 1=точная цена, 2=из кэша.",
             "enum": [0, 1, 2],
             "default": 2
           },
           "currency": {
             "type": "integer",
-            "description": "Валюта: 0=RUB, 1=USD/EUR, 2=BYR, 3=KZT.",
+            "description": "0=RUB, 1=USD/EUR, 2=BYR, 3=KZT.",
             "enum": [0, 1, 2, 3],
             "default": 0
           }
@@ -359,17 +352,17 @@
     {
       "type": "function",
       "name": "get_tour_details",
-      "description": "Получает детальную информацию о туре: авиарейсы (с альтернативными вариантами), обязательные доплаты, состав тура, что НЕ включено. ВАЖНО: всегда считается как запрос в лимит! ⚠️ ОШИБКА 'Wrong (obsolete) TourID': tourid устарел — нужен новый поиск. Перед вызовом уточни у клиента, нужны ли детали рейсов, чтобы не тратить лимит зря.",
+      "description": "Детали тура: авиарейсы, доплаты, состав, что не включено. Считается запросом в лимит. Ошибка 'Wrong TourID' → нужен новый поиск.",
       "parameters": {
         "type": "object",
         "properties": {
           "tourid": {
             "type": "string",
-            "description": "ID тура из результатов поиска или горящих туров."
+            "description": "ID тура."
           },
           "currency": {
             "type": "integer",
-            "description": "Валюта: 0=RUB, 1=USD/EUR, 2=BYR, 3=KZT.",
+            "description": "0=RUB, 1=USD/EUR, 2=BYR, 3=KZT.",
             "enum": [0, 1, 2, 3],
             "default": 0
           }
@@ -380,7 +373,7 @@
     {
       "type": "function",
       "name": "get_hotel_info",
-      "description": "Получает полную информацию об отеле: описание, инфраструктура, пляж, услуги для детей, типы номеров, фото, координаты, отзывы.",
+      "description": "Полная информация об отеле: описание, инфраструктура, пляж, детские услуги, номера, фото, отзывы.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -390,19 +383,19 @@
           },
           "imgbig": {
             "type": "integer",
-            "description": "Если 1 — возвращать большие фото (800px вместо 400px).",
+            "description": "1=большие фото (800px).",
             "enum": [0, 1],
             "default": 0
           },
           "removetags": {
             "type": "integer",
-            "description": "Если 1 — убрать HTML-теги из списков (разделитель — точка с запятой).",
+            "description": "1=убрать HTML-теги.",
             "enum": [0, 1],
             "default": 0
           },
           "reviews": {
             "type": "integer",
-            "description": "Если 1 — включить последние 5 отзывов. ВАЖНО: увеличивает размер ответа! При показе отзывов ОБЯЗАТЕЛЬНО указывать sourcelink!",
+            "description": "1=включить 5 последних отзывов (указывай sourcelink!).",
             "enum": [0, 1],
             "default": 0
           }
@@ -413,45 +406,45 @@
     {
       "type": "function",
       "name": "get_hot_tours",
-      "description": "Получает горящие туры — специальные предложения со скидками. ⚠️ КРИТИЧНО: Цена указана ЗА ЧЕЛОВЕКА (1/2 DBL), НЕ за номер! Для пары умножай на 2! Пример: цена 45000₽/чел = 90000₽ за двоих. Всегда показывай клиенту ОБЩУЮ стоимость: 'от X ₽/чел (Y ₽ за двоих)'. Горящие туры тоже имеют tourid — можно вызвать actualize_tour для точной цены и бронирования.",
+      "description": "Горящие туры со скидками. ЦЕНА ЗА ЧЕЛОВЕКА (1/2 DBL)! Для пары ×2. Показывай: 'от X ₽/чел (Y ₽ за двоих)'. Имеют tourid для actualize_tour.",
       "parameters": {
         "type": "object",
         "properties": {
           "city": {
             "type": "integer",
-            "description": "Код основного города вылета (обязательно)."
+            "description": "Код города вылета."
           },
           "items": {
             "type": "integer",
-            "description": "Количество туров (1-100). Обязательно.",
+            "description": "Кол-во туров (1-100).",
             "minimum": 1,
             "maximum": 100
           },
           "city2": {
             "type": "integer",
-            "description": "Код второго города вылета (меньший приоритет)."
+            "description": "2-й город вылета."
           },
           "city3": {
             "type": "integer",
-            "description": "Код третьего города вылета (ещё меньший приоритет)."
+            "description": "3-й город вылета."
           },
           "uniq2": {
             "type": "integer",
-            "description": "Если 1 — для city2 показывать только уникальные направления (которых нет из city).",
+            "description": "1=только уникальные для city2.",
             "enum": [0, 1]
           },
           "uniq3": {
             "type": "integer",
-            "description": "Если 1 — для city3 показывать только уникальные направления.",
+            "description": "1=только уникальные для city3.",
             "enum": [0, 1]
           },
           "maxdays": {
             "type": "integer",
-            "description": "Максимум дней от сегодня. Например: 7 = ближайшая неделя."
+            "description": "Макс. дней от сегодня."
           },
           "countries": {
             "type": "string",
-            "description": "Коды стран через запятую. Например: '1,4' (Египет, Турция)."
+            "description": "Коды стран через запятую."
           },
           "regions": {
             "type": "string",
@@ -459,56 +452,56 @@
           },
           "operators": {
             "type": "string",
-            "description": "Коды туроператоров через запятую."
+            "description": "Коды ТО через запятую."
           },
           "datefrom": {
             "type": "string",
-            "description": "Начало диапазона дат (ДД.ММ.ГГГГ). Например: '25.12.2026' для новогодних. Дата должна быть в будущем!"
+            "description": "Начало дат (ДД.ММ.ГГГГ)."
           },
           "dateto": {
             "type": "string",
-            "description": "Конец диапазона дат (ДД.ММ.ГГГГ). Дата должна быть в будущем!"
+            "description": "Конец дат (ДД.ММ.ГГГГ)."
           },
           "stars": {
             "type": "integer",
-            "description": "Минимальная звёздность (и выше).",
+            "description": "Мин. звёздность и выше.",
             "enum": [2, 3, 4, 5]
           },
           "rating": {
             "type": "number",
-            "description": "Минимальный рейтинг отеля. Можно дробный: 3.5, 4.0, 4.5."
+            "description": "Мин. рейтинг."
           },
           "meal": {
             "type": "integer",
-            "description": "Минимальный тип питания (код). Например: 7 = All Inclusive и лучше."
+            "description": "Мин. код питания."
           },
           "tourtype": {
             "type": "integer",
-            "description": "Тип тура: 0=любые, 1=пляжные, 2=горнолыжные, 3=экскурсионные.",
+            "description": "0=любые, 1=пляжные, 2=горнолыжные, 3=экскурсионные.",
             "enum": [0, 1, 2, 3],
             "default": 0
           },
           "visa": {
             "type": "integer",
-            "description": "Фильтр по визе: 0=любые страны, 1=только безвизовые.",
+            "description": "1=только безвизовые.",
             "enum": [0, 1],
             "default": 0
           },
           "sort": {
             "type": "integer",
-            "description": "Сортировка: 0=по полезности (по умолчанию), 1=по цене.",
+            "description": "0=по полезности, 1=по цене.",
             "enum": [0, 1],
             "default": 0
           },
           "picturetype": {
             "type": "integer",
-            "description": "Размер фото: 0=130px, 1=250px.",
+            "description": "0=130px, 1=250px.",
             "enum": [0, 1],
             "default": 0
           },
           "currency": {
             "type": "integer",
-            "description": "Валюта: 0=RUB, 1=USD/EUR.",
+            "description": "0=RUB, 1=USD/EUR.",
             "enum": [0, 1],
             "default": 0
           }

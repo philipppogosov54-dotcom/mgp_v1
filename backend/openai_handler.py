@@ -222,7 +222,7 @@ class OpenAIHandler(YandexGPTHandler):
             messages=messages,
             tools=self.openai_tools,
             temperature=0.2,
-            max_tokens=6000,
+            max_tokens=4096,
         )
 
     # ─── Main Chat Loop ──────────────────────────────────────────────────
