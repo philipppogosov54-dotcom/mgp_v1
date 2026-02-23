@@ -22,6 +22,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY backend /app/backend
 COPY frontend /app/frontend
 
+# Копируем файлы из корня проекта, которые нужны бэкенду во время работы
+COPY function_schemas.json /app/function_schemas.json
+COPY system_prompt.md /app/system_prompt.md
+
 # Создаем директорию для логов, чтобы не было ошибок при записи
 RUN mkdir -p /app/logs && chmod 777 /app/logs
 
