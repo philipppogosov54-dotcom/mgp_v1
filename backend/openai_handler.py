@@ -15,6 +15,7 @@ OpenAI GPT Handler — миграция с Yandex GPT на OpenAI (GPT-5 Mini)
 """
 
 import os
+import re
 import json
 import asyncio
 import time
@@ -47,6 +48,14 @@ except ImportError:
 load_dotenv()
 
 logger = logging.getLogger("mgp_bot")
+
+_RE_FUNC_NAMES = re.compile(
+    r'\(?(get_tour_details|search_tours|get_search_results|'
+    r'get_search_status|get_hotel_info|actualize_tour|'
+    r'get_hot_tours|continue_search|get_dictionaries|'
+    r'get_current_date)\)?',
+    re.IGNORECASE
+)
 
 
 class OpenAIHandler(YandexGPTHandler):
@@ -250,11 +259,12 @@ class OpenAIHandler(YandexGPTHandler):
             user_message[:150], len(self.full_history), self.model
         )
 
-        max_iterations = 15
+        max_iterations = 20
         iteration = 0
         chat_start = time.perf_counter()
         empty_retries = 0
         timeout_retries = 0
+        geo_retries = 0
 
         while iteration < max_iterations:
             iteration += 1
@@ -356,6 +366,19 @@ class OpenAIHandler(YandexGPTHandler):
                         await asyncio.sleep(2)
                         continue
 
+                # Geo-blocking (OpenRouter → OpenAI from Russia)
+                if ("403" in error_str
+                        or "unsupported_country" in error_str
+                        or "Forbidden" in error_str):
+                    geo_retries += 1
+                    if geo_retries < 2:
+                        logger.warning(
+                            "⚠️ 403 GEO-BLOCK RETRY %d/2 — повтор через 3с",
+                            geo_retries
+                        )
+                        await asyncio.sleep(3)
+                        continue
+
                 return (
                     "Произошла временная ошибка. "
                     "Попробуйте ещё раз или начните новый чат."
@@ -388,8 +411,17 @@ class OpenAIHandler(YandexGPTHandler):
                 )
 
                 # Оптимизация: параллельное выполнение tool calls
+                _LARGE_FUNCS = {
+                    'get_search_results', 'get_hotel_info', 'get_hot_tours'
+                }
+
+                def _truncate_tool_output(func_name, output):
+                    limit = 2000 if func_name in _LARGE_FUNCS else 1000
+                    if len(output) > limit:
+                        return output[:limit] + "…"
+                    return output
+
                 if len(message.tool_calls) == 1:
-                    # Один вызов — выполняем напрямую
                     tc = message.tool_calls[0]
                     arguments = tc.function.arguments or "{}"
                     result = await self._execute_function(
@@ -398,26 +430,32 @@ class OpenAIHandler(YandexGPTHandler):
                     self.full_history.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
-                        "content": result["output"]
+                        "content": _truncate_tool_output(
+                            tc.function.name, result["output"]
+                        )
                     })
                 else:
-                    # Несколько вызовов — выполняем параллельно через asyncio.gather
                     async def _exec_tool_call(tool_call):
                         args = tool_call.function.arguments or "{}"
-                        return tool_call.id, await self._execute_function(
-                            tool_call.function.name, args, tool_call.id
+                        return (
+                            tool_call.id,
+                            tool_call.function.name,
+                            await self._execute_function(
+                                tool_call.function.name, args, tool_call.id
+                            )
                         )
-                    
+
                     results = await asyncio.gather(*[
                         _exec_tool_call(tc) for tc in message.tool_calls
                     ])
-                    
-                    # Добавляем результаты в историю в том же порядке
-                    for tc_id, result in results:
+
+                    for tc_id, tc_name, result in results:
                         self.full_history.append({
                             "role": "tool",
                             "tool_call_id": tc_id,
-                            "content": result["output"]
+                            "content": _truncate_tool_output(
+                                tc_name, result["output"]
+                            )
                         })
 
                 logger.info(
@@ -450,12 +488,17 @@ class OpenAIHandler(YandexGPTHandler):
                 })
                 continue
 
-            # Truncated response (max_tokens)
+            # Truncated response (max_tokens) — trim to last complete sentence
             if finish_reason == "length" and final_text:
                 logger.warning(
                     "⚠️ Response truncated (max_tokens). "
                     "Length: %d chars", len(final_text)
                 )
+                for sep in ['. ', '! ', '? ', '.\n']:
+                    idx = final_text.rfind(sep)
+                    if idx > len(final_text) * 0.5:
+                        final_text = final_text[:idx + 1]
+                        break
 
             # Empty response
             if not final_text:
@@ -573,6 +616,10 @@ class OpenAIHandler(YandexGPTHandler):
             # Strip orphaned dialogue-continuation fragments after last '?'
             final_text = _strip_trailing_fragment(final_text)
 
+            # Strip leaked function names (e.g. "get_tour_details")
+            final_text = _RE_FUNC_NAMES.sub('', final_text)
+            final_text = re.sub(r'\s{2,}', ' ', final_text).strip()
+
             # Save to history
             self.full_history.append({
                 "role": "assistant", "content": final_text
@@ -587,7 +634,10 @@ class OpenAIHandler(YandexGPTHandler):
             return final_text
 
         logger.error("🤖 MAX ITERATIONS REACHED (%d)", max_iterations)
-        return "Ошибка: превышено количество итераций Function Calling"
+        return (
+            "Извините, запрос оказался слишком сложным. "
+            "Попробуйте ещё раз или уточните параметры."
+        )
 
     # ─── History Cleanup ──────────────────────────────────────────────────
 

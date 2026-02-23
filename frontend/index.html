@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>МГП - Сеть Магазинов Горящих Путевок</title>
+    <link rel="stylesheet" href="/frontend/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Демо-страница для тестирования виджета -->
+    <div class="demo-page">
+        <h1>Сеть Магазинов Горящих Путевок</h1>
+        <p>Демонстрационная страница для тестирования чат-виджета</p>
+        <p>Нажмите на красную кнопку в правом нижнем углу, чтобы открыть чат</p>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- ВИДЖЕТ ЧАТА МГП -->
+    <!-- ============================================ -->
+    
+    <!-- Кнопка открытия чата (Launcher) -->
+    <button class="chat-launcher" id="chatLauncher" aria-label="Открыть чат">
+        <svg class="launcher-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2ZM20 16H5.17L4 17.17V4H20V16Z" fill="currentColor"/>
+            <path d="M7 9H17V11H7V9ZM7 6H17V8H7V6ZM7 12H14V14H7V12Z" fill="currentColor"/>
+        </svg>
+        <svg class="launcher-close" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19 6.41L17.59 5L12 10.59L6.41 5L5 6.41L10.59 12L5 17.59L6.41 19L12 13.41L17.59 19L19 17.59L13.41 12L19 6.41Z" fill="currentColor"/>
+        </svg>
+    </button>
+
+    <!-- Окно чата -->
+    <div class="chat-widget" id="chatWidget">
+        <!-- Хедер -->
+        <div class="chat-header">
+            <div class="chat-header-info">
+                <div class="chat-logo">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                    </svg>
+                </div>
+                <div class="chat-title">
+                    <span class="chat-title-main">Сеть Магазинов</span>
+                    <span class="chat-title-sub">Горящих Путевок</span>
+                </div>
+            </div>
+            <button class="chat-new" data-action="new-chat" aria-label="Новый чат" title="Новый чат">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M17.65 6.35A7.958 7.958 0 0 0 12 4C7.58 4 4.01 7.58 4.01 12S7.58 20 12 20c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                </svg>
+            </button>
+            <button class="chat-close" id="chatClose" aria-label="Закрыть чат">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 6.41L17.59 5L12 10.59L6.41 5L5 6.41L10.59 12L5 17.59L6.41 19L12 13.41L17.59 19L19 17.59L13.41 12L19 6.41Z"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Область сообщений -->
+        <div class="chat-messages" id="chatMessages">
+            <!-- Приветственное сообщение -->
+            <div class="message bot-message">
+                <div class="message-avatar">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                    </svg>
+                </div>
+                <div class="message-content">
+                    <div class="message-bubble">
+                        👋 Здравствуйте! Я — ИИ-ассистент туристического агентства МГП.<br><br>
+                        Я помогу вам:<br>
+                        • 🔍 Подобрать тур по вашим параметрам<br>
+                        • 🔥 Найти горящие предложения<br>
+                        • ❓ Ответить на вопросы о визах, оплате, документах<br><br>
+                        <strong>Куда бы вы хотели поехать?</strong>
+                    </div>
+                </div>
+            </div>
+            <!-- Сообщения будут добавляться сюда -->
+        </div>
+
+        <!-- Индикатор набора текста -->
+        <div class="typing-indicator" id="typingIndicator">
+            <div class="message-avatar">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                </svg>
+            </div>
+            <div class="typing-content">
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <span class="typing-status" id="typingStatus"></span>
+            </div>
+        </div>
+
+        <!-- Футер с полем ввода -->
+        <div class="chat-footer">
+            <form class="chat-form" id="chatForm">
+                <input 
+                    type="text" 
+                    class="chat-input" 
+                    id="chatInput" 
+                    placeholder="Введите ваш запрос..."
+                    autocomplete="off"
+                >
+                <button type="submit" class="chat-send" id="chatSend" aria-label="Отправить">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                </button>
+            </form>
+            <div class="chat-powered">
+                Powered by <a href="https://ии-туризм.рф" target="_blank" rel="noopener">AIMPACT+</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/frontend/script.js"></script>
+</body>
+</html>
