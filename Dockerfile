@@ -34,4 +34,4 @@ EXPOSE 8080
 
 # Запускаем через Gunicorn. 
 # Подставляем порт из переменной окружения, если она задана платформой, иначе 8080.
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 4 --timeout 120 --chdir /app/backend app:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --timeout 120 --chdir /app/backend app:app"]
